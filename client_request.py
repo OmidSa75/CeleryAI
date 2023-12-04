@@ -22,13 +22,6 @@ if __name__ == "__main__":
     else: 
         number_of_calls = 1
     g = celery.group(celery_app.signature('inference_model', queue='AIWithCelery') for _ in range(number_of_calls))
-    # for _ in range(number_of_calls):
-
-    #     task = celery_app.send_task(
-    #             'inference_model',
-    #             queue='AIWithCelery',
-    #             )
-    # result = task.get()
     task = g.apply_async()
     task.get()
 
