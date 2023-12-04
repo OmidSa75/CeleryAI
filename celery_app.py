@@ -1,11 +1,14 @@
+import os
+
 import celery
-import redis
+from celery import signals
 import torch
 import torchvision
 from torchvision.models.detection import MaskRCNN
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 
-device = torch.device('cpu')
+device = torch.device('cuda')
+print(f"Device {device} is chosen")
 
 
 def load_model():
@@ -44,39 +47,45 @@ class BaseTask(celery.Task):
     def __init__(self) -> None:
         super().__init__()
         self._ai_model = None
-        
+        # signals.worker_init.connect(self.on_worker_init)
+
+    def on_worker_init(self, *args, **kwargs):
+        print("Loading AI Model ...")
+        self._ai_model = load_model()
+        print("AI Model Loaded")
 
     @property
     def ai_model(self):
         if self._ai_model is None:
             self._ai_model = load_model()
-            print("Load AI Model")
         return self._ai_model
 
 
+@celery.shared_task(name='inference_model', bind=True, base=BaseTask)
 def inference_model(self):
-    # if not hasattr(_self, 'ai_model'):
-    #     _self.ai_model = _self.load_model()
-    #     print('Load AI model')
-
     input_x = [torch.rand(3, 300, 400).to(
         device), torch.rand(3, 500, 400).to(device)]
     prediction = self.ai_model(input_x)
     print('Hi, this is a inference function')
     return str(type(prediction))
 
+
 if __name__ == "__main__":
+    # this forces the application to use spawn instead of fork
+    os.environ["FORKED_BY_MULTIPROCESSING"] = "1"
+    if os.name != "nt":
+        from billiard import context
+        context._force_start_method("spawn")
+        print('Context is changed to SPAWN')
+
     celery_app = celery.Celery(
         'main_celery',
         backend='redis://:Eyval@localhost:6379/1',
         broker='redis://:Eyval@localhost:6379/1',
         task_default_queue='AIWithCelery',
+        include=['celery_app']
     )
 
-    # input_x = [torch.rand(3, 300, 400).to(
-    #     device), torch.rand(3, 500, 400).to(device)]
-    # prediction = model(input_x)
-
-    celery_app.task(name='inference_model', bind=True,
-                    base=BaseTask)(inference_model)
-    celery_app.start(['worker', '-l', 'INFO'])
+    # celery_app.task(name='inference_model', bind=True,
+                    # base=BaseTask)(inference_model)
+    celery_app.start(['worker', '-l', 'INFO', '--concurrency', '2'])
