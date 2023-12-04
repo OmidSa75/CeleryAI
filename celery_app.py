@@ -8,7 +8,7 @@ from torchvision.models.detection.anchor_utils import AnchorGenerator
 device = torch.device('cpu')
 
 
-def load_model(_self):
+def load_model():
 
     backbone = torchvision.models.mobilenet_v2().features
     backbone.out_channels = 1280
@@ -43,19 +43,25 @@ def load_model(_self):
 class BaseTask(celery.Task):
     def __init__(self) -> None:
         super().__init__()
+        self._ai_model = None
+        
 
-    def run(self, *args, **kwargs):
-        return super().run(*args, **kwargs)
+    @property
+    def ai_model(self):
+        if self._ai_model is None:
+            self._ai_model = load_model()
+            print("Load AI Model")
+        return self._ai_model
 
 
-def inference_model(_self):
-    if not hasattr(_self, 'ai_model'):
-        _self.ai_model = _self.load_model()
-        print('Load AI model')
+def inference_model(self):
+    # if not hasattr(_self, 'ai_model'):
+    #     _self.ai_model = _self.load_model()
+    #     print('Load AI model')
 
     input_x = [torch.rand(3, 300, 400).to(
         device), torch.rand(3, 500, 400).to(device)]
-    prediction = _self.ai_model(input_x)
+    prediction = self.ai_model(input_x)
     print('Hi, this is a inference function')
     return str(type(prediction))
 
@@ -72,5 +78,5 @@ if __name__ == "__main__":
     # prediction = model(input_x)
 
     celery_app.task(name='inference_model', bind=True,
-                    load_model=load_model)(inference_model)
+                    base=BaseTask)(inference_model)
     celery_app.start(['worker', '-l', 'INFO'])
